@@ -13,7 +13,7 @@
  * @module dsh-tool-guards
  */
 import z from '@deepseek-ai/schemastery'
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expandHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { asObject } from './lib/shared.js'
@@ -78,8 +78,10 @@ export const Config = z.object({
  */
 function resolveConfig(config) {
   const raw = typeof config?.hooksPath === 'string' ? config.hooksPath.trim() : ''
+  // 用 node:path 拼接：Windows 上混用 `/` 虽多半能读，但日志与诊断里的路径
+  // 会变成 `C:\Users\x\.dsh/tool-guards/hooks.json` 这种半截形态，排障时误导人。
   const hooksPath = raw.length === 0
-    ? `${resolveDshHome()}/tool-guards/hooks.json`
+    ? join(resolveDshHome(), 'tool-guards', 'hooks.json')
     : expandHomePath(raw)
   return {
     hooksPath,

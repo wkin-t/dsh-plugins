@@ -12,14 +12,45 @@
  * @module dsh-tool-guards/test/postSyntax
  */
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
-import { checkerFor, planCheck, runChecker } from '../lib/post/syntax.js'
+import { CHECKERS, checkerFor, planCheck, pythonRunnerFor, runChecker } from '../lib/post/syntax.js'
 
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+
+describe('Python 解释器按平台选择', () => {
+  test('darwin / linux 用 python3', () => {
+    assert.equal(pythonRunnerFor('darwin'), 'python3')
+    assert.equal(pythonRunnerFor('linux'), 'python3')
+  })
+
+  test('win32 用 python', () => {
+    assert.equal(pythonRunnerFor('win32'), 'python')
+  })
+
+  test('其他类 Unix 平台也回落到 python3（不是 win32 就用 python3）', () => {
+    assert.equal(pythonRunnerFor('freebsd'), 'python3')
+    assert.equal(pythonRunnerFor('openbsd'), 'python3')
+  })
+
+  test('CHECKERS 在模块加载时按本机平台定下 runner', () => {
+    assert.equal(CHECKERS.python.runner, pythonRunnerFor(process.platform))
+    // TypeScript 那半跑在 node 上，与平台无关——保持原行为不变。
+    assert.equal(CHECKERS.typescript.runner, 'node')
+  })
+
+  test('检查器脚本路径可用 node:path join 解析到真实文件', () => {
+    for (const spec of Object.values(CHECKERS)) {
+      assert.ok(
+        existsSync(join(PLUGIN_ROOT, spec.script)),
+        `检查器脚本不存在：${join(PLUGIN_ROOT, spec.script)}`,
+      )
+    }
+  })
+})
 
 describe('写后检查的路由', () => {
   test('按扩展名选检查器', () => {

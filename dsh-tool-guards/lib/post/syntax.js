@@ -12,12 +12,33 @@
  * @module dsh-tool-guards/post/syntax
  */
 import { spawn } from 'node:child_process'
-import { extname } from 'node:path'
+import { extname, join } from 'node:path'
 import { isWriteTool } from '../shared.js'
 
-/** 检查器脚本相对插件根的位置（vendor 自原 hooks 目录）。 */
+/**
+ * 按平台选 Python 解释器。
+ *
+ * - win32：`python`（python.org 安装器只把启动器注册成 `python`；`python3` 常缺失，
+ *   或指向 Microsoft Store 的占位程序）；
+ * - darwin / linux（以及其他类 Unix 平台）：`python3`（PEP 394 约定；裸 `python`
+ *   在 macOS 上可能不存在，在部分发行版上仍可能指向 Python 2）。
+ *
+ * 单独导出成函数是为了让测试能显式验三条分支：本机只可能落到其中一条，
+ * 不给入口的话另外两条永远只有"读代码觉得对"这种伪验证。
+ *
+ * @param platform - `process.platform` 的取值。
+ * @returns 解释器命令名。
+ */
+export function pythonRunnerFor(platform) {
+  return platform === 'win32' ? 'python' : 'python3'
+}
+
+/** 模块加载时按本机平台定下的 Python 解释器（不要在每次检查时重算/读环境）。 */
+const PYTHON_RUNNER = pythonRunnerFor(process.platform)
+
+/** 检查器脚本相对插件根的位置（vendor 自原 hooks 目录），运行时用 node:path 拼接。 */
 export const CHECKERS = {
-  python: { script: 'oracle/hooks/check-python-syntax.py', runner: 'python', exts: ['.py'] },
+  python: { script: 'oracle/hooks/check-python-syntax.py', runner: PYTHON_RUNNER, exts: ['.py'] },
   typescript: { script: 'oracle/hooks/check-ts-syntax.mjs', runner: 'node', exts: ['.ts', '.tsx', '.mts', '.cts'] },
 }
 
@@ -76,12 +97,14 @@ export function runChecker({ kind, pluginRoot, exec, timeoutMs }) {
 
     let child
     try {
-      child = spawn(spec.runner, [`${pluginRoot}/${spec.script}`], {
+      // 用 node:path 的 join 拼脚本路径，而不是字符串相加：按当前平台给出正确分隔符，
+      // pluginRoot 末尾是否带分隔符都不会拼出 `//` 或混合分隔符。
+      child = spawn(spec.runner, [join(pluginRoot, spec.script)], {
         stdio: ['pipe', 'pipe', 'ignore'],
         windowsHide: true,
       })
     } catch {
-      // 找不到解释器（例如没装 python）视为"检查器不可用"，放行。
+      // 找不到解释器（例如没装 python/python3）视为"检查器不可用"，放行。
       settle(undefined)
       return
     }

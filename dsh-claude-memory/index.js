@@ -6,18 +6,26 @@
  *
  * 算法与运行时契约的证据：
  * - `research/cc-verbatim-strings.md`（claude.exe 字节级还原）
- * - `research/dsh-runtime-contracts.md`（dsh 0.2.0-rc.2 实测）
+ * - `research/dsh-runtime-contracts.md`（dsh 0.2.0-rc.2 实测；0.2.1-rc.2 起
+ *   新增可选的 `workingDirectory` 服务，见 `lib/working-dir.js`）
  * - `research/ac1-verification.md` / `ac2-verification.md` / `ac4-verification.md` / `ac10-verification.md`
  *
  * @module dsh-claude-memory
  */
 import { readFile, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import z from '@deepseek-ai/schemastery'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { expandHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { memoryDirFor, projectRootFor, readMemoryIndex, slugFor } from './lib/locate.js'
 import { renderMemoryBlock } from './lib/render.js'
 import { SOURCE_KIND, lastInjectedPayload, planInjection } from './lib/inject.js'
+import {
+  ROOT_SOURCE,
+  dshProjectsRoot,
+  resolveMemoryRoot,
+} from './lib/roots.js'
+import { resolveWorkingDirectory } from './lib/working-dir.js'
 
 /** 插件显示名。 */
 export const name = 'claude-memory'
@@ -26,8 +34,9 @@ export const name = 'claude-memory'
  * 必需服务列表。
  *
  * **刻意留空**：`inject` 列出的服务必须全部在场，否则插件永久 PENDING。
- * 本插件只需要读文件，用 `node:fs` 即可，不需要 `fs` 服务在场，
- * 因此不声明任何依赖，从而在任何组合下都能 ACTIVE。
+ * 本插件只需要读文件，用 `node:fs` 即可，不需要 `fs` 服务在场。
+ * 0.2.1-rc.2 的 `workingDirectory` 也是**可选**服务（`ctx.get` + 判空），
+ * 缺席时回退 session header `cwd`，因此同样声明为硬依赖会破坏「任何组合都 ACTIVE」。
  */
 export const inject = []
 
@@ -42,31 +51,21 @@ export const Config = z.object({
 })
 
 /**
- * 解析配置：把 `memoryRoot` 展开为绝对路径，空值落到 `$DSH_HOME/projects`。
+ * 解析配置：展开 `memoryRoot` 里的 `~`，空值表示「未配置」。
+ *
+ * 空值不在这里落到 `$DSH_HOME/projects`——具体根目录由
+ * {@link resolveMemoryRoot} 在运行时按「配置 → `$DSH_HOME/projects` →
+ * `~/.claude/projects` → `$DSH_HOME/projects`」的顺序探测。
+ *
  * @param config - 原始插件配置。
  * @returns 归一化后的配置。
  */
 function resolveConfig(config) {
   const raw = typeof config?.memoryRoot === 'string' ? config.memoryRoot.trim() : ''
-  const memoryRoot = raw.length === 0 ? `${resolveDshHome()}/projects` : expandHomePath(raw)
   return {
-    memoryRoot,
+    configuredMemoryRoot: raw.length === 0 ? '' : expandHomePath(raw),
     diagnostics: config?.diagnostics !== false,
   }
-}
-
-/**
- * 解析当前操作的工作目录。
- *
- * dsh 0.2.0-rc.2 **没有** `workingDirectory` 服务（asar 字节级检索与服务目录均 0 命中），
- * 因此不写"服务存在就用它"的探测分支——那是为不可能发生的状态写的投机回退。
- * 会话 header 的 `cwd` 即权威来源。
- *
- * @param agent - 当前 agent。
- * @returns 绝对工作目录。
- */
-function resolveWorkingDirectory(agent) {
-  return agent?.session?.header?.cwd ?? process.cwd()
 }
 
 /**
@@ -97,6 +96,23 @@ const nodeFs = {
 }
 
 /**
+ * 目录存在性谓词，注入给 {@link resolveMemoryRoot}。
+ *
+ * 任何异常（权限不足、断链、父目录不是目录等）一律视为「不存在」：
+ * 根目录探测发生在会话路径上，不值得让它把整块记忆注入打挂。
+ *
+ * @param path - 待探测路径。
+ * @returns 是否为已存在的目录。
+ */
+async function directoryExists(path) {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/**
  * 装载插件。
  * @param ctx - cordis 上下文。
  * @param config - 插件配置。
@@ -105,6 +121,55 @@ export function apply(ctx, config = {}) {
   const resolved = resolveConfig(config)
   /** 已发出过诊断的会话，避免每次 pre-step 刷日志。 */
   const diagnosed = new WeakSet()
+
+  /**
+   * 根目录不是默认位置时提示一次（每个插件实例一次，不按会话刷屏）。
+   * @param root - {@link resolveMemoryRoot} 的结果。
+   */
+  const logRootSource = (root) => {
+    if (root.source === ROOT_SOURCE.CLAUDE_PROJECTS) {
+      ctx.logger?.info?.(
+        `claude-memory: $DSH_HOME/projects not found; using Claude Code store at ${root.memoryRoot} ` +
+          '(set memoryRoot to override)',
+      )
+    } else if (root.source === ROOT_SOURCE.DSH_PROJECTS_FALLBACK) {
+      ctx.logger?.info?.(
+        'claude-memory: neither $DSH_HOME/projects nor ~/.claude/projects exists; ' +
+          `defaulting to ${root.memoryRoot}`,
+      )
+    }
+  }
+
+  /** 解析后的 memoryRoot 只算一次（需要探测两处目录是否存在）。 */
+  let memoryRootPromise
+
+  /**
+   * 解析并缓存 memoryRoot；探测本身已容错，这里再兜一层，确保插件永不因此失效。
+   * @returns {@link resolveMemoryRoot} 的结果。
+   */
+  const resolveRootOnce = () => {
+    if (memoryRootPromise !== undefined) return memoryRootPromise
+    memoryRootPromise = resolveMemoryRoot({
+      configured: resolved.configuredMemoryRoot,
+      dshHome: resolveDshHome(),
+      homeDir: homedir(),
+      exists: directoryExists,
+    })
+      .then((root) => {
+        if (resolved.diagnostics) logRootSource(root)
+        return root
+      })
+      .catch((error) => {
+        // 极端情况（如 resolveDshHome 内部异常）：退回旧默认根，交给既有诊断说明 0 字节。
+        ctx.logger?.warn?.('claude-memory: memoryRoot resolution failed: %o', error)
+        return {
+          memoryRoot: dshProjectsRoot(resolveDshHome()),
+          source: ROOT_SOURCE.DSH_PROJECTS_FALLBACK,
+          candidates: {},
+        }
+      })
+    return memoryRootPromise
+  }
 
   /**
    * 每个会话只记一次诊断，使"0 字节注入"与"插件 bug"可区分（R10）。
@@ -120,6 +185,24 @@ export function apply(ctx, config = {}) {
   }
 
   /**
+   * 查找宿主**可选**的 `workingDirectory` 服务。
+   *
+   * 0.2.1-rc.2 里它的 access 是 optional（`ctx.get("workingDirectory")` 后需判空），
+   * 且服务未注册时 `ctx.get` 本身也可能抛错；两种情况都按「不可用」处理，
+   * 由 {@link resolveWorkingDirectory} 回退到 session header cwd / process.cwd()。
+   * 不写进 `inject`，插件才能在任何 profile 下保持 ACTIVE。
+   *
+   * @returns 服务实例，或 undefined。
+   */
+  const lookupWorkingDirectory = () => {
+    try {
+      return ctx.get?.('workingDirectory')
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
    * 组装本步应注入的消息。
    * @param agent - 当前 agent。
    * @param signal - 取消信号。
@@ -127,7 +210,12 @@ export function apply(ctx, config = {}) {
    */
   const compose = async (agent, signal) => {
     signal?.throwIfAborted()
-    const cwd = resolveWorkingDirectory(agent)
+    // memoryRoot 只解析一次；解析结果决定后续所有步骤读取哪个根。
+    const root = await resolveRootOnce()
+    signal?.throwIfAborted()
+    // 用宿主报告的有效目录：子代理 / working_directory 工具切换后，它可能与
+    // session header 的 cwd 不同；只读 header 会按错误 slug 查找而漏注入。
+    const cwd = resolveWorkingDirectory(agent, { workingDirectory: lookupWorkingDirectory() })
     const projectRoot = projectRootFor(cwd)
     const { slug, truncated } = slugFor(projectRoot)
     if (truncated) {
@@ -138,12 +226,13 @@ export function apply(ctx, config = {}) {
       )
     }
 
-    const memoryDir = memoryDirFor(resolved.memoryRoot, slug)
+    const memoryDir = memoryDirFor(root.memoryRoot, slug)
     const { memoryPath, text } = await readMemoryIndex(memoryDir, nodeFs, signal)
     if (text === undefined) {
       diagnoseOnce(
         agent,
-        `no MEMORY.md at ${memoryPath} (memoryRoot=${resolved.memoryRoot}, slug=${slug}); ` +
+        `no MEMORY.md at ${memoryPath} ` +
+          `(memoryRoot=${root.memoryRoot}, rootSource=${root.source}, slug=${slug}); ` +
           'injecting nothing — this is expected when the project has no auto memory',
       )
       return undefined

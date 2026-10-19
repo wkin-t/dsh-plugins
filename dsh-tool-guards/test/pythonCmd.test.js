@@ -1,8 +1,9 @@
 /**
  * python guard 的单元测试。
  *
- * 两条平台分支都用 `checkForPlatform()` 直接验：本机是 win32，只靠
- * `process.platform` 的话 Unix 分支永远不会被测到。
+ * 两条平台分支都用 `checkForPlatform()` 直接验：宿主机只可能落在其中一条
+ * （Windows 上是 win32，macOS/Linux 上是 darwin/linux），只靠 `process.platform`
+ * 的话另一条永远不会被测到。`check()` 的本机分支由本文件末尾那条测试兜住。
  *
  * @module dsh-tool-guards/test/python-cmd
  */
@@ -74,6 +75,15 @@ test('unix：裸 python 被拦', () => {
   assert.match(reason, /已拦下 macOS\/Linux 上的裸 python 命令/)
 })
 
+test('darwin：裸 python 被拦，python3 / python3.x 放行', () => {
+  // macOS 上 Python 由 Homebrew / Xcode CLT 提供，裸 `python` 常常根本不存在；
+  // 这条显式锁定 darwin 分支，避免以后把平台判断写成 `=== 'linux'` 之类只测到一半。
+  const reason = checkForPlatform('darwin', 'bash', { command: 'python x.py' })
+  assert.match(reason, /已拦下 macOS\/Linux 上的裸 python 命令/)
+  assert.equal(checkForPlatform('darwin', 'bash', { command: 'python3 x.py' }), undefined)
+  assert.equal(checkForPlatform('darwin', 'bash', { command: 'python3.13 -m pytest' }), undefined)
+})
+
 test('unix：python3 放行', () => {
   assert.equal(checkForPlatform('linux', 'bash', { command: 'python3 x.py' }), undefined)
   assert.equal(checkForPlatform('darwin', 'bash', { command: 'python3 -m venv .venv' }), undefined)
@@ -88,9 +98,13 @@ test('unix：远程段同样剥离', () => {
 })
 
 test('本机 check() 走 process.platform 分支', () => {
-  const reason = check('pwsh', { command: 'python3 x.py' })
-  if (process.platform === 'win32') assert.match(reason, /Windows 本地 python3/)
-  else assert.equal(reason, undefined)
+  if (process.platform === 'win32') {
+    assert.match(check('pwsh', { command: 'python3 x.py' }), /Windows 本地 python3/)
+    assert.equal(check('pwsh', { command: 'python x.py' }), undefined)
+  } else {
+    assert.equal(check('pwsh', { command: 'python3 x.py' }), undefined)
+    assert.match(check('pwsh', { command: 'python x.py' }), /macOS\/Linux/)
+  }
 })
 
 test('非 shell 工具与空 command 放行', () => {

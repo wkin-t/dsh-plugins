@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "dsh-tool-guards 的最小可用开关表：五条 guard 全部启用，且覆盖所有工具（无 matcher）。",
+    "用法：复制到 $DSH_HOME/tool-guards/hooks.json。默认即 ~/.dsh/tool-guards/hooks.json：",
+    "  mkdir -p ~/.dsh/tool-guards",
+    "  cp hooks.example.json ~/.dsh/tool-guards/hooks.json",
+    "命令只需要脚本文件名（basename）：插件只按 basename 识别 guard，路径不参与判断，",
+    "所以这份文件在 macOS / Linux / Windows 上通用，不需要改成绝对路径。",
+    "本文件必须是合法 JSON（不能有 // 注释）；_comment 字段会被解析器忽略。",
+    "这里列出的文件不存在也不影响 dsh 启动：插件按 fail-open 处理，只留一条 warn。"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node deprecated-guard.mjs", "timeout": 10 },
+          { "type": "command", "command": "node git-safety-guard.mjs", "timeout": 10 },
+          { "type": "command", "command": "node truncation-guard.mjs", "timeout": 10 },
+          { "type": "command", "command": "node python-cmd-guard.mjs", "timeout": 10 },
+          { "type": "command", "command": "node npm-guard.mjs", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}
