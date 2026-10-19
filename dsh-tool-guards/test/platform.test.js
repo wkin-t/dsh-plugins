@@ -1,13 +1,13 @@
 /**
- * Unix 分支差分测试：拿**真的跑在 linux/darwin 分支上的原脚本**当 oracle。
+ * 平台分支差分测试：拿**真的跑在指定平台分支上的原脚本**当 oracle。
  *
- * 为什么单独一个文件：`differential.test.js` 只能喂本机平台（win32）的分支，
- * `pythonCmd` 的 Unix 分支长期只有"读代码觉得一样"这种伪验证。
- * 这里用 `--import` 预载把 `process.platform` 改写后再跑原脚本，
- * 让它真实求值 Unix 分支，再与插件 `checkForPlatform()` 逐字比对。
+ * 为什么单独一个文件：`differential.test.js` 只能喂本机平台的分支——在 Windows
+ * 开发机上只覆盖 win32，在 macOS 上只覆盖 darwin，另一侧长期只有"读代码觉得一样"
+ * 这种伪验证。这里用 `--import` 预载把 `process.platform` 改写后再跑原脚本，
+ * 让它真实求值 linux / darwin / win32 三条分支，再与插件 `checkForPlatform()` 逐字比对。
  *
  * 注意：这里比的是**平台分支**，不是整条链路；`check()` 自身仍由
- * `differential.test.js` 在 win32 分支上对拍。
+ * `differential.test.js` 在**本机平台**分支上对拍。
  *
  * @module dsh-tool-guards/test/platform
  */
@@ -22,8 +22,13 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ORACLE = join(HERE, '..', 'oracle', 'helpers', 'python-cmd-guard.mjs')
 const PRELOAD = pathToFileURL(join(HERE, 'helpers', 'fake-platform.mjs')).href
 
-/** 被测平台。只测 Unix 侧：win32 侧已有 differential.test.js 覆盖。 */
-const PLATFORMS = ['linux', 'darwin']
+/**
+ * 被测平台：三条平台分支全部显式求值。
+ *
+ * 为什么不只测 Unix 侧：宿主机只有一条真实分支，`differential.test.js` 在 macOS
+ * 上永远不会碰到 win32；把 win32 也放进伪造平台矩阵，任何宿主机都能对拍全部分支。
+ */
+const PLATFORMS = ['linux', 'darwin', 'win32']
 
 /**
  * fixture 设计原则：每条都尽量踩在不同规则的边界上——
@@ -70,7 +75,7 @@ function oracleVerdict(platform, toolName, args) {
   return parsed.decision === 'block' ? String(parsed.reason) : undefined
 }
 
-describe('pythonCmd Unix 分支与原脚本逐字一致', () => {
+describe('pythonCmd 平台分支与原脚本逐字一致', () => {
   for (const platform of PLATFORMS) {
     describe(platform, () => {
       for (const fixture of FIXTURES) {
@@ -83,9 +88,9 @@ describe('pythonCmd Unix 分支与原脚本逐字一致', () => {
     })
   }
 
-  // 一条反向对照：如果伪造平台没生效，原脚本会走 win32 分支、拦 python3 而放 python，
-  // 那么上面那批 Unix 断言必然大面积失败。这里把它变成显式的自检，
-  // 避免"预载失效导致两边都跑 win32、于是错误地对齐"这种假绿。
+  // 一条反向对照：如果 `--import` 预载没生效，两条命令都会落到**宿主机**分支。
+  // Windows 上 onLinux 拿不到 macOS/Linux 文案；macOS/Linux 上 onWin32 会拦裸 python。
+  // 无论宿主是哪边，下面两条断言至少挂一条，避免"预载失效导致两边都跑宿主机分支、于是错误地对齐"这种假绿。
   test('预载确实改变了原脚本的分支（自检）', () => {
     const onLinux = oracleVerdict('linux', 'pwsh', { command: 'python --version' })
     const onWin32 = oracleVerdict('win32', 'pwsh', { command: 'python --version' })

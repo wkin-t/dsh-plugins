@@ -5,53 +5,87 @@
 
 插件**只读**：不写任何 memory 文件，不改写 CC 的存储格式。
 
-## 两份副本：哪份是权威
+## 安装（macOS）
+
+插件以 **cordis bundle** 形式安装：包内 `cordis.patch.yml` 负责在当前 profile
+插入 `claude-memory` 行。在 DSH Desktop 0.2.1-rc.2 的 agent 会话里用
+`plugin_manager` 工具，`target` 传**绝对包目录**（不是 `.tgz`，也不是 profile 目录）：
+
+```text
+plugin_manager(action: "install_bundle",
+               target: "/Users/<you>/Projects/dsh-plugin-dev/repo/dsh-claude-memory")
+```
+
+安装返回里的 `application` 为 `applied` 即已生效；生效范围是当前 profile，
+重启应用后仍保留。**不要手写** profile 的 `package.json` / `cordis.patch.yml`，
+DSH 的安装流程会处理它们。
 
 | 副本 | 路径 | 角色 |
 |---|---|---|
-| **运行副本（权威）** | `~/.dsh/profiles/desktop/plugins/dsh-claude-memory/` | dsh 实际加载的就是它。**改代码改这里。** |
-| 审计快照 | `<仓库>/.trellis/tasks/10-16-claude-memory-plugin/deliverable/` | 仅供版本控制与事后追溯，**不是**运行副本 |
+| **源码（唯一权威）** | `/Users/<you>/Projects/dsh-plugin-dev/repo/dsh-claude-memory/` | 改代码改这里 |
+| 运行副本 | DSH 安装到当前 profile 的副本/链接 | 由 `plugin_manager` 管理，**不要直接改** |
 
-两份**没有自动同步**。快照是手工复制的，`deliverable/MANIFEST.sha256` 记录了复制时的哈希，
-可用它检出漂移：
+两份**没有自动同步**，且源码改动**不会热重载**（ESM 模块缓存）：改完后重启
+dsh desktop，或先 `remove_bundle` 再 `install_bundle` 触发一次全新导入。
+直接对已安装包再调 `install_bundle` 只会返回 `already-installed`，不会重新加载代码。
 
-```powershell
-cd .trellis/tasks/10-16-claude-memory-plugin/deliverable
-Get-Content MANIFEST.sha256 | ForEach-Object {
-  $h,$f = $_ -split '  ',2
-  $a = (Get-FileHash $f -Algorithm SHA256).Hash.ToLower()
-  "{0}  {1}" -f $(if($a -eq $h){'OK '}else{'DIFF'}), $f
-}
-```
-
-发现 DIFF 时：**以运行副本为准**，重新复制并更新 `MANIFEST.sha256`。
-
-## 挂载
-
-在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 末尾追加（**必须包在 `insert:` 内**）：
-
-```yaml
-- insert:
-    - id: claude-memory
-      name: ./plugins/dsh-claude-memory/index.js
-      config:
-        memoryRoot: ~/.dsh/projects
-```
-
-`name` 以 `.` 开头，按 profile 目录解析（cordis loader 的 `baseUrl` 语义）。
+> 本仓库是 pnpm workspace：根 `package.json` 已把宿主包
+> `@deepseek-ai/dsh-home-paths`、`@deepseek-ai/dsh-llm`、`@deepseek-ai/schemastery`
+> （均 `0.2.1-rc.2`）装进 `repo/node_modules`，插件的裸导入靠它们解析。
+> 不要把插件目录单独复制到别处运行，也不要在插件目录内执行
+> `pnpm install` / `pnpm add`。
 
 ## 配置
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `memoryRoot` | `$DSH_HOME/projects` | 记忆根目录。支持 `~` / `~/` / `~\` 前缀 |
-| `maxLines` | `200` | 索引行数上限 |
-| `maxCodeUnits` | `25000` | 索引长度上限，单位是 **UTF-16 code unit**（不是 UTF-8 字节，见下） |
-| `diagnostics` | `true` | 每个会话输出一次定位诊断 |
+| `memoryRoot` | 自动解析（见下） | 记忆根目录。显式设置时优先；支持 `~` / `~/` / `~\` 前缀 |
+| `diagnostics` | `true` | 每个会话最多输出一条定位诊断 |
+
+索引上限是**固定常量**、不通过配置修改：200 行 / 25000 UTF-16 code unit
+（不是 UTF-8 字节，判别性证据见「验收对照」AC2）。
+
+配置对象示例：
+
+```yaml
+memoryRoot: ~/.claude/projects
+diagnostics: true
+```
+
+## memoryRoot 解析顺序（macOS）
+
+插件启动后只解析一次，按以下顺序取第一个命中的根：
+
+1. **显式配置的 `memoryRoot`**（最高优先级；即使目录暂时不存在也尊重配置）
+2. `$DSH_HOME/projects`（若存在）——迁移到 DSH 后的首选位置
+3. `~/.claude/projects`（若存在）——macOS 上 Claude Code 的真实 auto-memory store，只读复用
+4. `$DSH_HOME/projects`（兜底；随后由「找不到 MEMORY.md」诊断说明 0 字节原因）
+
+本机（macOS）典型值：
+
+```text
+$DSH_HOME              = /Users/<you>/.dsh
+$DSH_HOME/projects     = /Users/<you>/.dsh/projects        # 本机不存在
+~/.claude/projects     = /Users/<you>/.claude/projects     # 存在，命中
+MEMORY.md 示例          = /Users/<you>/.claude/projects/-Users-<you>-Projects-dingtalk-ai-bot/memory/MEMORY.md
+```
+
+解析结果会写进诊断：`rootSource=` 取值 `configured` / `dsh-projects` /
+`claude-projects` / `dsh-projects-fallback`。
+
+**只解析根，不改变定位算法**：slug 仍严格使用算法值、无归一化回退；插件对
+`~/.claude/projects` **只读**，不会写入或迁移任何文件。迁移完成后
+（`$DSH_HOME/projects` 存在）会自动切回它；想强制使用 CC store 时显式配置
+`memoryRoot: ~/.claude/projects` 即可。
 
 ## 行为
 
-**定位**：`cwd` → 项目根（**共同仓库根**，链接工作树会归回主仓库）→ CC 的 slug 算法 → `<memoryRoot>/<slug>/memory/MEMORY.md`。
+**定位**：有效工作目录 → 项目根（**cwd 字面量，不上溯**；链接工作树与仓库子目录各自独立）→ CC 的 slug 算法 → `<memoryRoot>/<slug>/memory/MEMORY.md`。
+
+**有效工作目录**的解析顺序：`workingDirectory.get(session)`（dsh 0.2.1-rc.2 的宿主服务，
+子代理的 cwd 与 `working_directory` 工具切换后的目录都以它为准）→ session header `cwd`
+→ `process.cwd()`。该服务是**可选**的（`ctx.get` + 判空 + try/catch），不写进 `inject`；
+服务缺席时行为与旧版一致，插件仍保持 ACTIVE。
 
 **无回退**：只使用算法 slug。不扫描 `-`/`_` 归一化别名、不合并多个目录。
 算法 slug 不存在时注入 0 字节——这与 CC 自身行为一致。
@@ -73,19 +107,23 @@ Contents of <MEMORY.md 绝对路径> (user's auto-memory, persists across conver
 开 `diagnostics`（默认开），日志里会有：
 
 ```
-claude-memory: no MEMORY.md at <路径> (memoryRoot=…, slug=…); injecting nothing — …
+claude-memory: no MEMORY.md at <路径> (memoryRoot=…, rootSource=…, slug=…); injecting nothing — …
 ```
 
 对照检查三件事：
 
-1. **路径对不对**：日志里的 `memoryRoot` 与 `slug` 是否指向你预期的项目。
+1. **路径对不对**：日志里的 `memoryRoot`、`rootSource` 与 `slug` 是否指向你预期的项目。
    - slug 的算法是「每个非 `[a-zA-Z0-9]` 字符各出一个 `-`」，且**不做** toLowerCase。
-     例：`C:\PersonalFiles\cc` → `C--PersonalFiles-cc`。
+     例：`C:\PersonalFiles\cc` → `C--PersonalFiles-cc`；
+     `/Users/<you>/Projects/dingtalk-ai-bot` → `-Users-<you>-Projects-dingtalk-ai-bot`
+     （开头的 `/` 也出一个 `-`）。
    - 若你的项目在**链接工作树**或**仓库子目录**里，slug 仍取 **cwd 字面量**，不上溯到仓库根
      ——这与 CC 一致（已用 69 个真实会话核对）。
 2. **文件在不在**：`<memoryRoot>/<slug>/memory/MEMORY.md` 是否存在且非空。
-3. **迁移做没做**：`memoryRoot` 默认指向 `~/.dsh/projects`。若还没从 `~/.claude/projects`
-   迁过来，这里自然是空的——临时把 `memoryRoot` 指向 `C:/Users/<you>/.claude/projects` 即可先验证插件本身。
+3. **根目录命中了哪个**：解析顺序见上。`rootSource=claude-projects` 表示
+   `$DSH_HOME/projects` 不存在、已只读复用 `~/.claude/projects`；若那里也没有对应项目，
+   注入 0 字节是预期行为。要迁移时把 `~/.claude/projects` 内容搬到
+   `$DSH_HOME/projects`（存在后自动优先），或显式配置 `memoryRoot`。
 
 ## 验收对照（均已实测）
 
@@ -168,13 +206,20 @@ dsh 里它只统辖 `MEMORY.md`，`AGENTS.md` 由 `agent-instructions` 用另一
 `node:fs` 的 `Stats` 语义确定，不会产生这类风险。
 
 **为什么 `inject` 为空数组**：`inject` 列出的服务必须全部在场，否则插件永久 PENDING。
-本插件不需要任何服务在场，因此不声明依赖。
+本插件不需要任何服务在场；`workingDirectory` 也通过 `ctx.get('workingDirectory')`
+可选读取（缺席时回退 session header `cwd`），因此不声明依赖，在任何 profile 下都保持 ACTIVE。
 
 **异常处理**：`agent/pre-step` 监听器整体 `try/catch`。pre-step 抛异常会让当前 turn 失败，
 且该步输入已被 claim，代价高于"少注入一块记忆"，故异常时原样返回下游决策并记 warn 日志。
 
 ## 测试
 
-```powershell
-node --test "$env:USERPROFILE\.dsh\profiles\desktop\plugins\dsh-claude-memory\test"
+测试只依赖 `node`（本机 v26），在仓库根目录执行：
+
+```bash
+cd /Users/<you>/Projects/dsh-plugin-dev/repo
+node --test dsh-claude-memory/test
 ```
+
+覆盖 slug 定位（AC10）、`memoryRoot` 解析（含 `~/.claude/projects` 回退）、
+截断/渲染与注入决策；macOS 上应 **0 fail**。
