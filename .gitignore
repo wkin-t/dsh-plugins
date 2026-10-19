@@ -1,0 +1,17 @@
+# 依赖目录
+node_modules/
+.pnpm-store/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 本地备份与临时产物
+*.bak-*
+*.orig
+*.rej
+*.log
+*.tmp

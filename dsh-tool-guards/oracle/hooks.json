@@ -1,0 +1,61 @@
+{
+  "_comment": [
+    "从 C:/Users/DELL/.claude/settings.json 的 hooks 段迁移而来，供 @deepseek-ai/dsh-hooks-claude-code 读取。",
+    "本文件必须是 JSON——该桥接用 JSON.parse() 读取，YAML 会导致整份配置静默失败。",
+    "两处适配：",
+    "  1) matcher 主体是 DSH 工具名（全小写：pwsh / edit / write），不是 Claude 的 Bash / Edit / Write；",
+    "  2) timeout 单位是秒（DSH 桥接语义），不是毫秒。",
+    "原 Claude 配置里 'Bash' 与 'Edit|Write' 两个分组是对首个无 matcher 分组的纯冗余重列，",
+    "DSH 桥接不做 handler 去重（串行全跑），故已折叠为单组，语义等价且不会重复执行。"
+  ],
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.dsh/claude-hooks/helpers/deprecated-guard.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.dsh/claude-hooks/helpers/git-safety-guard.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.dsh/claude-hooks/helpers/truncation-guard.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.dsh/claude-hooks/helpers/python-cmd-guard.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.dsh/claude-hooks/helpers/npm-guard.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "edit|write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:/Users/DELL/.dsh/claude-hooks/hooks/check-python-syntax.py\"",
+            "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "node \"C:/Users/DELL/.dsh/claude-hooks/hooks/check-ts-syntax.mjs\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
