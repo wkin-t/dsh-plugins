@@ -1,0 +1,22 @@
+# 包成 bundle 才能在 GUI 里开关（原因见 dsh-mcp-rea/cordis.patch.yml 顶部说明）。
+#
+# blender-mcp 走 uv run 起本地进程，只在做白模 / 预演时才用，
+# 挂载后每轮请求固定带 14,536 字符 ≈ 5k tokens 的工具定义。
+# 需要时在「设置 → 插件」里打开；BLENDER_MCP_PORT 需与 Blender 里 addon 的监听端口一致。
+- insert:
+    - id: mcp-blender
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: blender
+        transport: stdio
+        command: C:/Users/DELL/.local/bin/uv.exe
+        args:
+          - --directory
+          - C:/Users/DELL/blender_mcp/mcp
+          - run
+          - blender-mcp
+        env:
+          BLENDER_PATH: D:/Tools/Blender/5.2.1/blender.exe
+          BLENDER_MCP_HOST: localhost
+          BLENDER_MCP_PORT: "9876"
+        failOnStartupError: false

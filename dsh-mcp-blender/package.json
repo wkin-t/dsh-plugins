@@ -1,0 +1,13 @@
+{
+  "name": "dsh-mcp-blender",
+  "version": "0.1.0",
+  "private": true,
+  "description": "把 blender-mcp（Blender 白模/预演）包成 bundle，使其在 dsh 插件页里可开关。条目 id 仍为 mcp-blender。",
+  "type": "module",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

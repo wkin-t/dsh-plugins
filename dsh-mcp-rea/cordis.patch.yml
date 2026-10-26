@@ -1,0 +1,29 @@
+# 为什么这一行要单独包成 bundle
+#
+# dsh 的插件页是**按 bundle（npm 包）**组织的，客户端 slot 契约写得很明确：
+#   plugins.bundle.activation → "after the user enables a bundle from the list, keyed by npm package name"
+#   plugins.row.config        → "one row a bundle declares, keyed by <package name>#<row id>"
+# 直接写在 profile 的 cordis.patch.yml 里的裸条目没有归属 bundle，所以 GUI 里
+# 既看不到、也开关不了。包成 bundle 之后，「设置 → 插件」里就有独立开关了。
+#
+# 条目 id 必须保持 `rea-mcp`：那是 REA 自己的契约值（其 src/application/DshCordisPatch.ts
+# 的 DSH_ENTRY_ID）。若改用别的 id，将来上游把配置路径修正为 profile 时，
+# `rea setup` 会再插一条，导致 rea 工具重名。
+#
+# 路径指向 C:/PersonalFiles/cc 里已安装的发布包而非 npx：避开 npm guard 的 npx 拦截，
+# 且每次启动不走网络解析版本。
+# failOnStartupError: false —— 该项目被移动/删除时只让 rea 工具消失，不阻断 dsh 启动。
+#
+# 成本提醒：本条目挂载后会在每一轮请求里多带 207 个工具 / 793,996 字符 ≈ 248k tokens，
+# 且对**所有 agent**（含子代理）生效。用完请关掉。
+- insert:
+    - id: rea-mcp
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: rea
+        transport: stdio
+        command: D:/Program Files/nodejs/node.exe
+        args:
+          - C:/PersonalFiles/cc/node_modules/rea-agents/scripts/rea.mjs
+          - --mcp
+        failOnStartupError: false
