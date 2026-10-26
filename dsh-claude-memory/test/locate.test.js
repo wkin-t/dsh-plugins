@@ -21,7 +21,7 @@ const FIXTURE = IS_WINDOWS
   ? {
       label: 'Windows',
       projectRoot: 'E:\\TestProjects\\20261016_dsh',
-      projectRootSlug: 'E--TestProjects-20261016_dsh',
+      projectRootSlug: 'E--TestProjects-20261016-dsh',
       mainRepo: 'C:\\PersonalFiles\\dingtalk-ai-bot',
       mainRepoSlug: 'C--PersonalFiles-dingtalk-ai-bot',
       worktreeRepo: 'E:\\TestProjects\\universal-automation-test',
