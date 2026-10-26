@@ -1,0 +1,16 @@
+# 包成 bundle 才能在 GUI 里开关（原因见 dsh-mcp-rea/cordis.patch.yml 顶部说明）。
+#
+# comfy-mcp 只在出片时用（minimax-h3-video-production 等 skill），
+# 但挂载后每轮请求都要带 59,084 字符 ≈ 18k tokens 的工具定义，与是否调用无关。
+# 平时关着，要出片时在「设置 → 插件」里打开。
+- insert:
+    - id: mcp-comfy
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: comfy-mcp
+        transport: stdio
+        command: comfy-mcp
+        args: []
+        env:
+          COMFYUI_URL: http://172.17.6.105:58108
+        failOnStartupError: false

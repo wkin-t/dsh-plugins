@@ -1,3 +1,7 @@
 packages:
   - dsh-claude-memory
   - dsh-tool-guards
+  - dsh-mcp-rea
+  - dsh-mcp-comfy
+  - dsh-mcp-blender
+  - dsh-mcp-huggingface

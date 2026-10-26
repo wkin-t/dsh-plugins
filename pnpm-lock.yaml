@@ -30,6 +30,14 @@ importers:
         specifier: 3.18.5
         version: 3.18.5
 
+  dsh-mcp-blender: {}
+
+  dsh-mcp-comfy: {}
+
+  dsh-mcp-huggingface: {}
+
+  dsh-mcp-rea: {}
+
   dsh-tool-guards:
     dependencies:
       '@deepseek-ai/dsh-home-paths':
