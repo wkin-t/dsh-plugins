@@ -1,0 +1,17 @@
+{
+  "name": "dsh-plugins-workspace",
+  "private": true,
+  "description": "Workspace for the dsh plugin bundles; host packages are installed here so linked plugins resolve their imports.",
+  "packageManager": "pnpm@11.28.5",
+  "devDependencies": {
+    "@deepseek-ai/dsh-home-paths": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
+    "@deepseek-ai/schemastery": "3.18.5"
+  },
+  "scripts": {
+    "test": "node --test dsh-claude-memory/test dsh-tool-guards/test",
+    "test:memory": "node --test dsh-claude-memory/test",
+    "test:guards": "node --test dsh-tool-guards/test"
+  },
+  "license": "MIT"
+}

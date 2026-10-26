@@ -1,0 +1,22 @@
+{
+  "name": "dsh-tool-guards",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Port the Claude Code hook guards (npm/python/git safety/deprecated/truncation) into in-process synchronous dsh tool guards.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-home-paths": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "3.18.5"
+  },
+  "license": "MIT"
+}

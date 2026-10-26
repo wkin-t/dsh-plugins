@@ -1,0 +1,3 @@
+- insert:
+    - id: claude-memory
+      name: dsh-claude-memory
