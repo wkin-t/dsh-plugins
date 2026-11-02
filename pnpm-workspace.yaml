@@ -5,3 +5,4 @@ packages:
   - dsh-mcp-comfy
   - dsh-mcp-blender
   - dsh-mcp-huggingface
+  - dsh-superagent
