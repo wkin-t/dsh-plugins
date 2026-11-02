@@ -63,14 +63,24 @@ def ps(*options, check=False):
             yield int(parts[0]), parts[1], parts[2].split()
 
 
+def service_process(name, args, profile):
+    """Return whether a `ps` row is the DSH service for `profile`.
+
+    `ucomm` is not reliable: Node names its main thread, so the field can read `MainThread` rather than `node`.
+    The executed program's basename is checked as well.
+    """
+    program = os.path.basename(args[0]) if args else ''
+    return (name in ('node', 'dsh') or program in ('node', 'dsh')) and serves(args, profile)
+
+
 def running(pid, profile):
     """Return whether `pid` is currently running the DSH service for `profile` (`ps -p` returns nothing once exited)."""
-    return any(found == pid and name in ('node', 'dsh') and serves(args, profile) for found, name, args in ps('-p', str(pid)))
+    return any(found == pid and service_process(name, args, profile) for found, name, args in ps('-p', str(pid)))
 
 
 def processes(profile):
     """Return PIDs of all running DSH service processes for `profile`, including instances started outside this script and the recorded `service.pid` while still running."""
-    found = [pid for pid, name, args in ps('-ax', check=True) if name in ('node', 'dsh') and serves(args, profile)]
+    found = [pid for pid, name, args in ps('-ax', check=True) if service_process(name, args, profile)]
     try:
         pid = int((control(profile) / 'service.pid').read_text())
     except (OSError, ValueError):
